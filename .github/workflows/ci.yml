@@ -182,8 +182,8 @@ jobs:
       with:
         use-cross: ${{ matrix.job.use-cross }}
         command: build
-        # AQUI AGREGAMOS --release (Modificado por PC Creative)
-        args: --locked --release --target=${{ matrix.job.target }}
+        # AQUI AGREGAMOS --release y --no-default-features para omitir el audio y evitar el error (Modificado por PC Creative)
+        args: --locked --release --target=${{ matrix.job.target }} --no-default-features
 
     - name: clean
       shell: bash
