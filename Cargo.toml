@@ -1,5 +1,5 @@
 [package]
-name = "Soporte PC Creative"
+name = "rustdesk"
 version = "1.5.0"
 authors = ["Claudio Kernel <claudiokernel@pccreative.cl>"]
 edition = "2021"
