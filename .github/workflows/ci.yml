@@ -29,35 +29,44 @@ jobs:
       fail-fast: false
       matrix:
         job:
-          # SOLO COMPILAMOS WINDOWS PARA EVITAR DEMORAS
-          - { target: x86_64-pc-windows-msvc      , os: windows-2022                  }
-          
+          - { target: x86_64-pc-windows-msvc, os: windows-2022 }
+
     steps:
-    - name: Free Disk Space (Ubuntu)
-      if: runner.os == 'Linux'
-      uses: jlumbroso/free-disk-space@54081f138730dfa15788a46383842cd2f914a1be # v1.3.1
-      with:
-        tool-cache: false
-        android: true
-        dotnet: true
-        haskell: true
-        large-packages: false
-        docker-images: true
-        swap-storage: false
-
-    - name: Export GitHub Actions cache environment variables
-      uses: actions/github-script@d7906e4ad0b1822421a7e6a35d5ca353c962f410 # v6
-      with:
-        script: |
-          core.exportVariable('ACTIONS_CACHE_URL', process.env.ACTIONS_CACHE_URL || '');
-          core.exportVariable('ACTIONS_RUNTIME_TOKEN', process.env.ACTIONS_RUNTIME_TOKEN || '');
-
     - name: Checkout source code
-      uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      uses: actions/checkout@v4
       with:
         submodules: recursive
 
-    - name: Install prerequisites
+    - name: Setup vcpkg with Github Actions binary cache
+      uses: lukka/run-vcpkg@b1a0dd252f06b9e25b3c022a9a03bd7a427fb6a2
+      with:
+        # Usamos una ruta fija en C: para runners Windows
+        vcpkgDirectory: C:\opt\artifacts\vcpkg
+        vcpkgGitCommitId: ${{ env.VCPKG_COMMIT_ID }}
+
+    - name: Install vcpkg dependencies (Windows)
+      if: runner.os == 'Windows'
+      shell: powershell
+      run: |
+        # Generar vcpkg.json
+        '{ "name": "rustdesk", "version-string": "1.2.0", "dependencies": [ "libvpx", "libyuv", "aom", "opus" ] }' | Out-File -Encoding utf8 vcpkg.json
+
+        # Instalar con la tripleta estática explícita
+        & "$env:VCPKG_ROOT\vcpkg" install --triplet x64-windows-static --x-install-root="$env:VCPKG_ROOT/installed"
+
+        # Verificar que los headers estén donde esperamos
+        if (Test-Path "C:\opt\artifacts\vcpkg\installed\x64-windows-static\include\vpx") {
+          Get-ChildItem "C:\opt\artifacts\vcpkg\installed\x64-windows-static\include\vpx" | ForEach-Object { Write-Host $_.Name }
+        } else {
+          Write-Host "Aviso: no se encontró la carpeta include/vpx en la ruta esperada."
+        }
+
+        # Exportar variables para bindgen y compilación (GITHUB_ENV)
+        Add-Content -Path $env:GITHUB_ENV -Value 'BINDGEN_EXTRA_CLANG_ARGS=-IC:\opt\artifacts\vcpkg\installed\x64-windows-static\include'
+        Add-Content -Path $env:GITHUB_ENV -Value 'INCLUDE=C:\opt\artifacts\vcpkg\installed\x64-windows-static\include'
+
+    - name: Install prerequisites (Linux fallback)
+      if: runner.os == 'Linux'
       shell: bash
       run: |
         case ${{ matrix.job.target }} in
@@ -67,21 +76,8 @@ jobs:
             ;;
         esac
 
-    - name: Setup vcpkg with Github Actions binary cache
-      uses: lukka/run-vcpkg@b1a0dd252f06b9e25b3c022a9a03bd7a427fb6a2 # v11
-      with:
-        vcpkgDirectory: /opt/artifacts/vcpkg
-        vcpkgGitCommitId: ${{ env.VCPKG_COMMIT_ID }}
-
-    - name: Install vcpkg dependencies
-      run: |
-        echo '{ "name": "rustdesk", "version-string": "1.2.0", "dependencies": [ "libvpx", "libyuv", "aom", "opus" ] }' > vcpkg.json
-        $VCPKG_ROOT/vcpkg install --x-install-root="$VCPKG_ROOT/installed"
-        echo "BINDGEN_EXTRA_CLANG_ARGS=-ID:\\opt\\artifacts\\vcpkg\\installed\\x64-windows-static\\include" >> $GITHUB_ENV
-      shell: bash
-
     - name: Install Rust toolchain
-      uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # v1
+      uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9
       with:
         toolchain: stable
         targets: ${{ matrix.job.target }}
@@ -97,10 +93,10 @@ jobs:
         cargo -V
         rustc -V
 
-    - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+    - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32
 
     - name: Build
-      uses: actions-rs/cargo@844f36862e911db73fe0815f00a4a2602c279505 # v1
+      uses: actions-rs/cargo@844f36862e911db73fe0815f00a4a2602c279505
       with:
         use-cross: ${{ matrix.job.use-cross }}
         command: build
@@ -128,7 +124,7 @@ jobs:
         echo "CARGO_TEST_OPTIONS=${CARGO_TEST_OPTIONS}" >> $GITHUB_OUTPUT
 
     - name: Run tests
-      uses: actions-rs/cargo@844f36862e911db73fe0815f00a4a2602c279505 # v1
+      uses: actions-rs/cargo@844f36862e911db73fe0815f00a4a2602c279505
       with:
         use-cross: ${{ matrix.job.use-cross }}
         command: test
