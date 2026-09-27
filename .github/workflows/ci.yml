@@ -80,7 +80,10 @@ jobs:
           # - { target: i686-unknown-linux-musl     , os: ubuntu-20.04, use-cross: true }
           # - { target: x86_64-apple-darwin         , os: macos-10.15                   }
           # - { target: x86_64-pc-windows-gnu       , os: windows-2022                  }
-          # - { target: x86_64-pc-windows-msvc      , os: windows-2022                  }
+          
+          # AQUI ACTIVAMOS WINDOWS (Línea descomentada por PC Creative)
+          - { target: x86_64-pc-windows-msvc      , os: windows-2022                  }
+          
           # - { target: aarch64-pc-windows-msvc     , os: windows-11-arm                }
           - { target: x86_64-unknown-linux-gnu    , os: ubuntu-24.04                  }
           # - { target: x86_64-unknown-linux-musl   , os: ubuntu-20.04, use-cross: true }
@@ -179,7 +182,8 @@ jobs:
       with:
         use-cross: ${{ matrix.job.use-cross }}
         command: build
-        args: --locked --target=${{ matrix.job.target }}
+        # AQUI AGREGAMOS --release (Modificado por PC Creative)
+        args: --locked --release --target=${{ matrix.job.target }}
 
     - name: clean
       shell: bash
@@ -248,3 +252,11 @@ jobs:
         use-cross: ${{ matrix.job.use-cross }}
         command: test
         args: --locked --target=${{ matrix.job.target }} ${{ steps.test-options.outputs.CARGO_TEST_OPTIONS}}
+
+    # PASO NUEVO VITAL: Empaquetar y subir el instalador .exe
+    - name: Upload Windows EXE Artifact
+      if: matrix.job.target == 'x86_64-pc-windows-msvc'
+      uses: actions/upload-artifact@v4
+      with:
+        name: Soporte-PCCreative-Windows
+        path: target/${{ matrix.job.target }}/release/*.exe
