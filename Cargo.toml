@@ -1,10 +1,10 @@
 [package]
-name = "rustdesk"
+name = "Soporte PC Creative"
 version = "1.5.0"
-authors = ["rustdesk <info@rustdesk.com>"]
+authors = ["Claudio Kernel <claudiokernel@pccreative.cl>"]
 edition = "2021"
 build= "build.rs"
-description = "RustDesk Remote Desktop"
+description = "Asistencia Remota - PC Creative"
 default-run = "rustdesk"
 rust-version = "1.75"
 
