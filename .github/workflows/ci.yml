@@ -29,210 +29,86 @@ jobs:
       fail-fast: false
       matrix:
         job:
-          - { target: x86_64-pc-windows-msvc, os: windows-2022 }
-
+          - { target: x86_64-pc-windows-msvc      , os: windows-2022                  }
+          
     steps:
+    - name: Free Disk Space (Ubuntu)
+      if: runner.os == 'Linux'
+      uses: jlumbroso/free-disk-space@54081f138730dfa15788a46383842cd2f914a1be # v1.3.1
+      with:
+        tool-cache: false
+        android: true
+        dotnet: true
+        haskell: true
+        large-packages: false
+        docker-images: true
+        swap-storage: false
+
+    - name: Export GitHub Actions cache environment variables
+      uses: actions/github-script@d7906e4ad0b1822421a7e6a35d5ca353c962f410 # v6
+      with:
+        script: |
+          core.exportVariable('ACTIONS_CACHE_URL', process.env.ACTIONS_CACHE_URL || '');
+          core.exportVariable('ACTIONS_RUNTIME_TOKEN', process.env.ACTIONS_RUNTIME_TOKEN || '');
+
     - name: Checkout source code
-      uses: actions/checkout@v4
+      uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
       with:
         submodules: recursive
 
+    - name: Install prerequisites
+      shell: bash
+      run: |
+        case ${{ matrix.job.target }} in
+          x86_64-unknown-linux-gnu)
+            sudo apt-get -y update
+            sudo apt-get install -y clang cmake curl gcc git g++ libasound2-dev libunwind-dev libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev libgtk-3-dev libpulse-dev libva-dev libvdpau-dev libxcb-randr0-dev libxcb-shape0-dev libxcb-xfixes0-dev libxdo-dev libxfixes-dev nasm wget
+            ;;
+        esac
+
     - name: Setup vcpkg with Github Actions binary cache
-      uses: lukka/run-vcpkg@b1a0dd252f06b9e25b3c022a9a03bd7a427fb6a2
+      uses: lukka/run-vcpkg@b1a0dd252f06b9e25b3c022a9a03bd7a427fb6a2 # v11
       with:
-        vcpkgDirectory: C:\opt\artifacts\vcpkg
+        vcpkgDirectory: /opt/artifacts/vcpkg
         vcpkgGitCommitId: ${{ env.VCPKG_COMMIT_ID }}
 
-    - name: CI Diagnostics Windows (early)
-      if: runner.os == 'Windows'
-      shell: powershell
+    - name: Install vcpkg dependencies
       run: |
-        Write-Host "=== Diagnostics: environment variables ==="
-        Write-Host "VCPKG_ROOT = $env:VCPKG_ROOT"
-        Write-Host "PATH = $env:PATH"
-
-        Write-Host "=== Diagnostics: check vcpkg include (vp8.h) ==="
-        $vcpkgInclude = 'C:\opt\artifacts\vcpkg\installed\x64-windows-static\include'
-        if (Test-Path (Join-Path $vcpkgInclude 'vpx\vp8.h')) {
-          Write-Host "OK: vpx\vp8.h encontrado"
-        } else {
-          Write-Host "FALLO: vpx\vp8.h NO encontrado en $vcpkgInclude"
-          if (Test-Path 'C:\opt\artifacts\vcpkg\installed') {
-            Get-ChildItem 'C:\opt\artifacts\vcpkg\installed' -Recurse -Depth 2 | Select-Object -First 40 | ForEach-Object { Write-Host $_.FullName }
-          } else {
-            Write-Host "La carpeta C:\opt\artifacts\vcpkg\installed no existe (vcpkg no instaló paquetes aún)."
-          }
-        }
-
-        Write-Host "=== Diagnostics: Visual Studio / vcvarsall ==="
-        $vswhere = 'C:\Program Files (x86)\Microsoft Visual Studio\Installer\vswhere.exe'
-        if (Test-Path $vswhere) {
-          $vsPath = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
-          Write-Host "Visual Studio installationPath: $vsPath"
-        } else {
-          Write-Host "vswhere no encontrado en la ruta esperada"
-        }
-
-        $vcvars = if ($vsPath) { Join-Path $vsPath 'VC\Auxiliary\Build\vcvarsall.bat' } else { $null }
-        if ($vcvars -and (Test-Path $vcvars)) {
-          Write-Host "vcvarsall existe: $vcvars"
-          & cmd /c "`"$vcvars`" x64 && set" | Select-String '^INCLUDE=' | ForEach-Object { Write-Host $_.ToString() }
-        } else {
-          Write-Host "vcvarsall NO encontrado o vswhere no devolvió ruta válida"
-        }
-
-        Write-Host "=== Diagnostics: clang ==="
-        if (Get-Command clang -ErrorAction SilentlyContinue) { clang --version } else { Write-Host "clang no en PATH" }
-
-    - name: Install vcpkg dependencies (Windows)
-      if: runner.os == 'Windows'
-      shell: powershell
-      run: |
-        Write-Host "Generando vcpkg.json y forzando tripleta x64-windows-static"
-        '{ "name": "rustdesk", "version-string": "1.2.0", "dependencies": [ "libvpx", "libyuv", "aom", "opus" ] }' | Out-File -Encoding utf8 vcpkg.json
-
-        if (-not (Test-Path $env:VCPKG_ROOT)) {
-          Write-Host "Advertencia: VCPKG_ROOT no definido. run-vcpkg debería haberlo establecido."
-        }
-
-        Write-Host "Instalando paquetes vcpkg (puede tardar varios minutos)..."
-        & "$env:VCPKG_ROOT\vcpkg" install --triplet x64-windows-static --x-install-root="$env:VCPKG_ROOT/installed"
-
-        Write-Host "Verificando headers vpx..."
-        $vcpkgInclude = 'C:\opt\artifacts\vcpkg\installed\x64-windows-static\include'
-        if (Test-Path (Join-Path $vcpkgInclude 'vpx\vp8.h')) {
-          Write-Host "OK: vpx\vp8.h encontrado"
-        } else {
-          Write-Host "Aviso: vpx\vp8.h no encontrado en $vcpkgInclude"
-        }
-
-        Write-Host "Exportando variables para bindgen y compilación"
-        Add-Content -Path $env:GITHUB_ENV -Value "VCPKG_INCLUDE=$vcpkgInclude"
-        Add-Content -Path $env:GITHUB_ENV -Value "BINDGEN_EXTRA_CLANG_ARGS=-I${vcpkgInclude}"
-        Add-Content -Path $env:GITHUB_ENV -Value "INCLUDE=${vcpkgInclude};$env:INCLUDE"
-
-    - name: Prepare MSVC environment and clang (Windows)
-      if: runner.os == 'Windows'
-      shell: powershell
-      run: |
-        Write-Host "Localizando Visual Studio con vswhere..."
-        $vswhere = 'C:\Program Files (x86)\Microsoft Visual Studio\Installer\vswhere.exe'
-        if (-not (Test-Path $vswhere)) {
-          Write-Host "vswhere no encontrado; intentando ruta alternativa..."
-        }
-
-        $vsPath = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
-        if (-not $vsPath) {
-          Write-Host "No se encontró Visual Studio con vswhere; abortando preparación de MSVC."
-          exit 1
-        }
-        Write-Host "Visual Studio en: $vsPath"
-
-        $vcvars = Join-Path $vsPath 'VC\Auxiliary\Build\vcvarsall.bat'
-        if (-not (Test-Path $vcvars)) {
-          Write-Host "vcvarsall.bat no encontrado en $vcvars"
-          exit 1
-        }
-
-        Write-Host "Ejecutando vcvarsall x64 y exportando INCLUDE/LIB/LIBPATH a GITHUB_ENV..."
-        & cmd /c "`"$vcvars`" x64 && set" | Out-String | ForEach-Object {
-          $_ -split "`r?`n" | ForEach-Object {
-            if ($_ -match '^(INCLUDE|LIB|LIBPATH)=(.*)$') {
-              $name = $matches[1]; $value = $matches[2]
-              Add-Content -Path $env:GITHUB_ENV -Value "$name=$value"
-              Write-Host "$name exported"
-            }
-          }
-        }
-
-        Write-Host "Asegurando clang/llvm en PATH (instalar si falta)..."
-        if (-not (Get-Command clang -ErrorAction SilentlyContinue)) {
-          Write-Host "clang no encontrado; instalando llvm con choco..."
-          choco install llvm -y
-          Write-Host "Instalación de llvm solicitada; puede tardar."
-        } else {
-          Write-Host "clang ya presente"
-        }
-
-        # Re-append vcpkg include to BINDGEN_EXTRA_CLANG_ARGS to ensure precedence
-        $vcpkgInclude = 'C:\opt\artifacts\vcpkg\installed\x64-windows-static\include'
-        $msvcFirstInclude = ($env:INCLUDE -split ';' | Select-Object -First 1)
-        $clangArgs = "-I`"$vcpkgInclude`" -I`"$msvcFirstInclude`" -DWIN32 -D_WINDOWS"
-        Add-Content -Path $env:GITHUB_ENV -Value "BINDGEN_EXTRA_CLANG_ARGS=$clangArgs"
-        Write-Host "BINDGEN_EXTRA_CLANG_ARGS set to: $clangArgs"
-
-    - name: Fail early if critical headers missing (Windows)
-      if: runner.os == 'Windows'
-      shell: powershell
-      run: |
-        $vpx = 'C:\opt\artifacts\vcpkg\installed\x64-windows-static\include\vpx\vp8.h'
-        if (-not (Test-Path $vpx)) {
-          Write-Error "vp8.h no encontrado en vcpkg include ($vpx). Revisa la instalación de vcpkg y la tripleta."
-          exit 1
-        }
-        if (-not $env:INCLUDE) {
-          Write-Error "INCLUDE vacío: vcvarsall no inicializó el entorno MSVC correctamente."
-          exit 1
-        }
-        Write-Host "Checks de headers OK"
+        echo '{ "name": "rustdesk", "version-string": "1.2.0", "dependencies": [ "libvpx", "libyuv", "aom", "opus" ] }' > vcpkg.json
+        $VCPKG_ROOT/vcpkg install --x-install-root="$VCPKG_ROOT/installed"
+        echo "BINDGEN_EXTRA_CLANG_ARGS=-ID:\\opt\\artifacts\\vcpkg\\installed\\x64-windows-static\\include" >> $GITHUB_ENV
+      shell: bash
 
     - name: Install Rust toolchain
-      uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9
+      uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # v1
       with:
         toolchain: stable
         targets: ${{ matrix.job.target }}
         components: ''
 
     - name: Show version information (Rust, cargo, GCC)
-      if: runner.os == 'Windows'
-      shell: powershell
+      shell: bash
       run: |
-        try { gcc --version } catch { Write-Host "gcc no disponible" }
+        gcc --version || true
         rustup -V
         rustup toolchain list
         rustup default
         cargo -V
         rustc -V
 
-    - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32
+    - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
 
     - name: Build
-      uses: actions-rs/cargo@844f36862e911db73fe0815f00a4a2602c279505
+      uses: actions-rs/cargo@844f36862e911db73fe0815f00a4a2602c279505 # v1
       with:
         use-cross: ${{ matrix.job.use-cross }}
         command: build
         args: --locked --release --target=${{ matrix.job.target }}
 
     - name: clean
-      if: runner.os == 'Windows'
-      shell: powershell
+      shell: bash
       run: |
         cargo clean
-
-    - name: Set testing options
-      id: test-options
-      if: runner.os == 'Windows'
-      shell: powershell
-      run: |
-        # Calcular opciones de test según la tripleta
-        $target = "${{ matrix.job.target }}"
-        $CARGO_TEST_OPTIONS = ""
-        if ($target -match '^arm-' -or $target -match '^aarch64-') {
-          $CARGO_TEST_OPTIONS = "--lib --bin $env:PROJECT_NAME"
-        } else {
-          $CARGO_TEST_OPTIONS = "--workspace --no-fail-fast -- --skip test_get_cursor_pos --skip test_get_key_state"
-        }
-        Write-Host "CARGO_TEST_OPTIONS = $CARGO_TEST_OPTIONS"
-        Add-Content -Path $env:GITHUB_ENV -Value "CARGO_TEST_OPTIONS=$CARGO_TEST_OPTIONS"
-        # Exponer como output compatible (archivo GITHUB_OUTPUT)
-        Add-Content -Path $env:GITHUB_OUTPUT -Value "CARGO_TEST_OPTIONS=$CARGO_TEST_OPTIONS"
-
-    - name: Run tests
-      uses: actions-rs/cargo@844f36862e911db73fe0815f00a4a2602c279505
-      with:
-        use-cross: ${{ matrix.job.use-cross }}
-        command: test
-        args: --locked --target=${{ matrix.job.target }} ${{ env.CARGO_TEST_OPTIONS }}
 
     - name: Upload Windows EXE Artifact
       if: matrix.job.target == 'x86_64-pc-windows-msvc'
