@@ -32,18 +32,6 @@ jobs:
           - { target: x86_64-pc-windows-msvc      , os: windows-2022                  }
           
     steps:
-    - name: Free Disk Space (Ubuntu)
-      if: runner.os == 'Linux'
-      uses: jlumbroso/free-disk-space@54081f138730dfa15788a46383842cd2f914a1be # v1.3.1
-      with:
-        tool-cache: false
-        android: true
-        dotnet: true
-        haskell: true
-        large-packages: false
-        docker-images: true
-        swap-storage: false
-
     - name: Export GitHub Actions cache environment variables
       uses: actions/github-script@d7906e4ad0b1822421a7e6a35d5ca353c962f410 # v6
       with:
@@ -56,28 +44,25 @@ jobs:
       with:
         submodules: recursive
 
-    - name: Install prerequisites
-      shell: bash
-      run: |
-        case ${{ matrix.job.target }} in
-          x86_64-unknown-linux-gnu)
-            sudo apt-get -y update
-            sudo apt-get install -y clang cmake curl gcc git g++ libasound2-dev libunwind-dev libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev libgtk-3-dev libpulse-dev libva-dev libvdpau-dev libxcb-randr0-dev libxcb-shape0-dev libxcb-xfixes0-dev libxdo-dev libxfixes-dev nasm wget
-            ;;
-        esac
-
     - name: Setup vcpkg with Github Actions binary cache
       uses: lukka/run-vcpkg@b1a0dd252f06b9e25b3c022a9a03bd7a427fb6a2 # v11
       with:
         vcpkgDirectory: /opt/artifacts/vcpkg
         vcpkgGitCommitId: ${{ env.VCPKG_COMMIT_ID }}
 
-    - name: Install vcpkg dependencies
+    - name: Forzar instalacion de dependencias y rutas C++
+      shell: powershell
       run: |
-        echo '{ "name": "rustdesk", "version-string": "1.2.0", "dependencies": [ "libvpx", "libyuv", "aom", "opus" ] }' > vcpkg.json
-        $VCPKG_ROOT/vcpkg install --x-install-root="$VCPKG_ROOT/installed"
-        echo "BINDGEN_EXTRA_CLANG_ARGS=-ID:\\opt\\artifacts\\vcpkg\\installed\\x64-windows-static\\include" >> $GITHUB_ENV
-      shell: bash
+        Write-Host "Instalando dependencias criticas a la fuerza..."
+        & $env:VCPKG_ROOT\vcpkg install opus:x64-windows-static libvpx:x64-windows-static libyuv:x64-windows-static aom:x64-windows-static --x-install-root="$env:VCPKG_ROOT\installed"
+        
+        $include_path = "$env:VCPKG_ROOT\installed\x64-windows-static\include"
+        $lib_path = "$env:VCPKG_ROOT\installed\x64-windows-static\lib"
+        
+        Write-Host "Inyectando rutas absolutas al compilador Clang/MSVC..."
+        Add-Content -Path $env:GITHUB_ENV -Value "BINDGEN_EXTRA_CLANG_ARGS=-I$include_path"
+        Add-Content -Path $env:GITHUB_ENV -Value "INCLUDE=$include_path;$env:INCLUDE"
+        Add-Content -Path $env:GITHUB_ENV -Value "LIB=$lib_path;$env:LIB"
 
     - name: Install Rust toolchain
       uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # v1
