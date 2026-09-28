@@ -50,19 +50,10 @@ jobs:
         vcpkgDirectory: /opt/artifacts/vcpkg
         vcpkgGitCommitId: ${{ env.VCPKG_COMMIT_ID }}
 
-    - name: Forzar instalacion de dependencias y rutas C++
-      shell: powershell
+    - name: Install vcpkg dependencies
       run: |
-        Write-Host "Instalando dependencias criticas a la fuerza..."
-        & $env:VCPKG_ROOT\vcpkg install opus:x64-windows-static libvpx:x64-windows-static libyuv:x64-windows-static aom:x64-windows-static --x-install-root="$env:VCPKG_ROOT\installed"
-        
-        $include_path = "$env:VCPKG_ROOT\installed\x64-windows-static\include"
-        $lib_path = "$env:VCPKG_ROOT\installed\x64-windows-static\lib"
-        
-        Write-Host "Inyectando rutas absolutas al compilador Clang/MSVC..."
-        Add-Content -Path $env:GITHUB_ENV -Value "BINDGEN_EXTRA_CLANG_ARGS=-I$include_path"
-        Add-Content -Path $env:GITHUB_ENV -Value "INCLUDE=$include_path;$env:INCLUDE"
-        Add-Content -Path $env:GITHUB_ENV -Value "LIB=$lib_path;$env:LIB"
+        $VCPKG_ROOT/vcpkg install --x-install-root="$VCPKG_ROOT/installed"
+      shell: bash
 
     - name: Install Rust toolchain
       uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # v1
@@ -88,7 +79,7 @@ jobs:
       with:
         use-cross: ${{ matrix.job.use-cross }}
         command: build
-        args: --locked --release --target=${{ matrix.job.target }}
+        args: --locked --release --target=${{ matrix.job.target }} --no-default-features
 
     - name: clean
       shell: bash
